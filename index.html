@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>狼男ジョニーの唐揚げバトル</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/biz-udpgothic@5.0.20/index.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1a2e; font-family: 'BIZ UDPGothic', sans-serif; user-select: none; }
+  #gameCanvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+  #hud { position: fixed; top: 0; left: 0; width: 100%; padding: 12px 16px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; z-index: 10; }
+  .hud-box { background: rgba(0,0,0,0.55); border-radius: 12px; padding: 8px 14px; color: #fff; }
+  #healthWrap { width: 180px; }
+  #healthLabel { font-size: 13px; margin-bottom: 4px; }
+  #healthBarOuter { width: 100%; height: 16px; background: #333; border-radius: 8px; overflow: hidden; border: 2px solid #555; }
+  #healthBarInner { height: 100%; width: 100%; background: linear-gradient(90deg,#ff5555,#ff2222); transition: width 0.15s; }
+  #scoreBox { font-size: 20px; font-weight: bold; text-align: right; }
+  #waveBox { font-size: 13px; text-align: right; margin-top: 2px; opacity: 0.85; }
+  #buffBox { position: fixed; top: 70px; left: 16px; z-index: 10; background: rgba(255,180,0,0.85); border-radius: 10px; padding: 6px 12px; color: #3a2200; font-weight: bold; font-size: 13px; display: none; }
+
+  #joystickZone { position: fixed; left: 0; bottom: 0; width: 45%; height: 55%; z-index: 5; }
+  #joystickBase { position: absolute; width: 110px; height: 110px; border-radius: 50%; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4); display: none; }
+  #joystickStick { position: absolute; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,0.55); left: 30px; top: 30px; }
+
+  #attackBtn {
+    position: fixed; right: 24px; bottom: 40px; width: 88px; height: 88px; min-width: 44px; min-height: 44px;
+    border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ffb84d, #d9720a);
+    border: 3px solid #ffe0a8; color: #3a1e00; font-weight: bold; font-size: 15px;
+    display: flex; align-items: center; justify-content: center; z-index: 10; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+  }
+  #attackBtn:active { transform: scale(0.92); }
+
+  #overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; background: rgba(10,10,20,0.88); z-index: 20; color: #fff; text-align: center; padding: 20px; }
+  #overlay h1 { font-size: 28px; margin-bottom: 10px; }
+  #overlay p { font-size: 16px; margin-bottom: 24px; opacity: 0.9; line-height: 1.6; }
+  #overlay button {
+    min-height: 52px; padding: 0 32px; font-size: 18px; font-family: 'BIZ UDPGothic', sans-serif; font-weight: bold;
+    background: linear-gradient(#ffb84d,#d9720a); border: none; border-radius: 26px; color: #3a1e00; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+  }
+  #overlay button:active { transform: scale(0.96); }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="hud">
+  <div class="hud-box" id="healthWrap">
+    <div id="healthLabel">ジョニーの体力</div>
+    <div id="healthBarOuter"><div id="healthBarInner"></div></div>
+  </div>
+  <div class="hud-box">
+    <div id="scoreBox">SCORE: 0</div>
+    <div id="waveBox">WAVE 1</div>
+  </div>
+</div>
+
+<div id="buffBox">🍗 パワーアップ中！</div>
+
+<div id="joystickZone">
+  <div id="joystickBase"><div id="joystickStick"></div></div>
+</div>
+
+<div id="attackBtn">こうげき</div>
+
+<div id="overlay">
+  <h1 id="overlayTitle">狼男ジョニーの唐揚げバトル</h1>
+  <p id="overlayText">唐揚げを食べてパワーアップ！<br>近づいてくる鼠から身を守れ！<br><br>左側をドラッグで移動 / 右のボタンでこうげき</p>
+  <button id="overlayBtn">スタート</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(function(){
+  'use strict';
+
+  // ---------- 基本セットアップ ----------
+  const canvas = document.getElementById('gameCanvas');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x2b2b45);
+  scene.fog = new THREE.Fog(0x2b2b45, 18, 34);
+
+  const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
+
+  function resize(){
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // ライト
+  scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+  const dirLight = new THREE.DirectionalLight(0xfff2d9, 0.9);
+  dirLight.position.set(6, 10, 4);
+  scene.add(dirLight);
+
+  // 地面
+  const ARENA_R = 12;
+  const ground = new THREE.Mesh(
+    new THREE.CircleGeometry(ARENA_R, 48),
+    new THREE.MeshStandardMaterial({ color: 0x3d5a3d })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  scene.add(ground);
+
+  // 外周の目印リング
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(ARENA_R - 0.15, ARENA_R, 48),
+    new THREE.MeshStandardMaterial({ color: 0x8a6a3a, side: THREE.DoubleSide })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.01;
+  scene.add(ring);
+
+  // ---------- プレイヤー: 狼男ジョニー ----------
+  const player = new THREE.Group();
+  const bodyGroup = new THREE.Group();
+  player.add(bodyGroup);
+
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x6b5847 });
+  const bellyMat = new THREE.MeshStandardMaterial({ color: 0xcbb89a });
+  const BODY_COLOR_NORMAL = 0x6b5847;
+  const BODY_COLOR_BUFF = 0xa8402a;
+
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 0.7, 4, 8), bodyMat);
+  torso.position.y = 0.95;
+  bodyGroup.add(torso);
+
+  const belly = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 8), bellyMat);
+  belly.position.set(0, 0.85, 0.35);
+  bodyGroup.add(belly);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.36, 12, 12), bodyMat);
+  head.position.y = 1.75;
+  bodyGroup.add(head);
+
+  const snout = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.32, 8), bodyMat);
+  snout.rotation.x = Math.PI / 2;
+  snout.position.set(0, 1.68, 0.38);
+  bodyGroup.add(snout);
+
+  const earGeo = new THREE.ConeGeometry(0.12, 0.28, 6);
+  const earL = new THREE.Mesh(earGeo, bodyMat); earL.position.set(-0.22, 2.05, 0); earL.rotation.z = -0.3;
+  const earR = new THREE.Mesh(earGeo, bodyMat); earR.position.set(0.22, 2.05, 0); earR.rotation.z = 0.3;
+  bodyGroup.add(earL, earR);
+
+  const armGeo = new THREE.CapsuleGeometry(0.13, 0.5, 4, 6);
+  const armL = new THREE.Mesh(armGeo, bodyMat); armL.position.set(-0.62, 1.0, 0);
+  const armR = new THREE.Mesh(armGeo, bodyMat); armR.position.set(0.62, 1.0, 0);
+  bodyGroup.add(armL, armR);
+
+  player.position.set(0, 0, 0);
+  scene.add(player);
+
+  // 唐揚げ(手持ち、演出用)
+  const karaageHandGeo = new THREE.SphereGeometry(0.14, 6, 6);
+  const karaageHandMat = new THREE.MeshStandardMaterial({ color: 0xc07a2c });
+  const karaageHand = new THREE.Mesh(karaageHandGeo, karaageHandMat);
+  karaageHand.position.set(0.62, 1.35, 0.25);
+  karaageHand.visible = false;
+  player.add(karaageHand);
+
+  // パワーアップ中の発光オーラ
+  const auraGeo = new THREE.SphereGeometry(0.85, 12, 12);
+  const auraMat = new THREE.MeshBasicMaterial({ color: 0xffe066, transparent: true, opacity: 0.25, side: THREE.BackSide });
+  const aura = new THREE.Mesh(auraGeo, auraMat);
+  aura.position.y = 1.1;
+  aura.visible = false;
+  player.add(aura);
+
+  // ---------- カメラ追従(斜め見下ろし固定) ----------
+  const camOffset = new THREE.Vector3(0, 8.5, 7.5);
+
+  // ---------- 入力: 仮想ジョイスティック ----------
+  const joyZone = document.getElementById('joystickZone');
+  const joyBase = document.getElementById('joystickBase');
+  const joyStick = document.getElementById('joystickStick');
+  let joyActive = false, joyId = null, joyOrigin = {x:0,y:0};
+  let moveVec = { x: 0, y: 0 };
+  const JOY_MAX = 50;
+
+  function joyStart(id, x, y){
+    joyActive = true; joyId = id; joyOrigin = { x, y };
+    joyBase.style.display = 'block';
+    joyBase.style.left = (x - 55) + 'px';
+    joyBase.style.top = (y - 55) + 'px';
+    joyStick.style.left = '30px'; joyStick.style.top = '30px';
+  }
+  function joyMove(x, y){
+    let dx = x - joyOrigin.x, dy = y - joyOrigin.y;
+    const dist = Math.min(Math.hypot(dx, dy), JOY_MAX);
+    const ang = Math.atan2(dy, dx);
+    dx = Math.cos(ang) * dist; dy = Math.sin(ang) * dist;
+    joyStick.style.left = (30 + dx) + 'px';
+    joyStick.style.top = (30 + dy) + 'px';
+    moveVec.x = dx / JOY_MAX;
+    moveVec.y = dy / JOY_MAX;
+  }
+  function joyEnd(){
+    joyActive = false; joyId = null;
+    joyBase.style.display = 'none';
+    moveVec.x = 0; moveVec.y = 0;
+  }
+
+  joyZone.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.changedTouches[0];
+    joyStart(t.identifier, t.clientX, t.clientY);
+  }, { passive: false });
+  joyZone.addEventListener('touchmove', e => {
+    e.preventDefault();
+    for (const t of e.changedTouches){
+      if (t.identifier === joyId) joyMove(t.clientX, t.clientY);
+    }
+  }, { passive: false });
+  joyZone.addEventListener('touchend', e => {
+    for (const t of e.changedTouches){
+      if (t.identifier === joyId) joyEnd();
+    }
+  });
+  joyZone.addEventListener('touchcancel', joyEnd);
+
+  // マウス操作(デスクトップ確認用)
+  let mouseDown = false;
+  joyZone.addEventListener('mousedown', e => { mouseDown = true; joyStart('mouse', e.clientX, e.clientY); });
+  window.addEventListener('mousemove', e => { if (mouseDown) joyMove(e.clientX, e.clientY); });
+  window.addEventListener('mouseup', () => { if (mouseDown) { mouseDown = false; joyEnd(); } });
+
+  // キーボード(デスクトップ確認用)
+  const keys = {};
+  window.addEventListener('keydown', e => keys[e.key] = true);
+  window.addEventListener('keyup', e => keys[e.key] = false);
+
+  // ---------- 攻撃入力 ----------
+  let attackRequested = false;
+  const attackBtn = document.getElementById('attackBtn');
+  attackBtn.addEventListener('touchstart', e => { e.preventDefault(); attackRequested = true; }, { passive: false });
+  attackBtn.addEventListener('mousedown', e => { e.preventDefault(); attackRequested = true; });
+  window.addEventListener('keydown', e => { if (e.key === ' ') attackRequested = true; });
+
+  // ---------- Web Audio ----------
+  let audioCtx = null;
+  function ensureAudio(){ if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+  function beep(freq, dur, type, vol){
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type || 'square';
+    osc.frequency.value = freq;
+    gain.gain.value = vol || 0.15;
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    osc.stop(audioCtx.currentTime + dur);
+  }
+  function sfxPunch(){ beep(180, 0.12, 'square', 0.18); }
+  function sfxHit(){ beep(90, 0.15, 'sawtooth', 0.2); }
+  function sfxDefeat(){ beep(700, 0.08, 'square', 0.18); setTimeout(()=>beep(950, 0.1, 'square', 0.15), 40); }
+  function sfxEat(){ beep(520, 0.1, 'sine', 0.15); setTimeout(()=>beep(700,0.12,'sine',0.15), 80); }
+  function sfxDamage(){ beep(140, 0.25, 'sawtooth', 0.22); }
+  function sfxGameOver(){ beep(220,0.3,'sawtooth',0.2); setTimeout(()=>beep(160,0.4,'sawtooth',0.2),200); }
+
+  // ---------- 鼠(敵) ----------
+  const mice = [];
+  const mouseBodyGeo = new THREE.SphereGeometry(0.28, 8, 8);
+  const mouseHeadGeo = new THREE.SphereGeometry(0.18, 8, 8);
+  const mouseEarGeo = new THREE.SphereGeometry(0.08, 6, 6);
+  const mouseMat = new THREE.MeshStandardMaterial({ color: 0x8a8a8a });
+  const mouseTailMat = new THREE.MeshStandardMaterial({ color: 0xc99a9a });
+
+  function spawnMouse(){
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(mouseBodyGeo, mouseMat);
+    body.position.y = 0.28;
+    body.scale.set(1, 0.85, 1.3);
+    const head = new THREE.Mesh(mouseHeadGeo, mouseMat);
+    head.position.set(0, 0.32, 0.32);
+    const earL = new THREE.Mesh(mouseEarGeo, mouseMat); earL.position.set(-0.12, 0.44, 0.32);
+    const earR = new THREE.Mesh(mouseEarGeo, mouseMat); earR.position.set(0.12, 0.44, 0.32);
+    const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.03, 0.5, 6), mouseTailMat);
+    tail.rotation.x = Math.PI / 2.2;
+    tail.position.set(0, 0.2, -0.42);
+    g.add(body, head, earL, earR, tail);
+
+    const angle = Math.random() * Math.PI * 2;
+    const r = ARENA_R - 0.4;
+    g.position.set(Math.cos(angle) * r, 0, Math.sin(angle) * r);
+    scene.add(g);
+
+    mice.push({
+      mesh: g,
+      hp: 1,
+      speed: 1.6 + Math.random() * 0.6,
+      alive: true,
+      hitFlash: 0
+    });
+  }
+
+  // ---------- 唐揚げ(アイテム) ----------
+  const karaages = [];
+  const karaageGeo = new THREE.SphereGeometry(0.28, 8, 6);
+  const karaageMat = new THREE.MeshStandardMaterial({ color: 0xc07a2c, roughness: 0.6 });
+
+  function spawnKaraage(){
+    const m = new THREE.Mesh(karaageGeo, karaageMat);
+    m.scale.set(1, 0.8, 1);
+    const angle = Math.random() * Math.PI * 2;
+    const r = Math.random() * (ARENA_R - 1.5);
+    m.position.set(Math.cos(angle) * r, 0.28, Math.sin(angle) * r);
+    scene.add(m);
+    karaages.push({ mesh: m, alive: true, spin: Math.random() * Math.PI });
+  }
+
+  // ---------- 撃退エフェクト ----------
+  const effects = [];
+  const particleGeo = new THREE.SphereGeometry(0.07, 6, 6);
+
+  function createTextSprite(text, color){
+    const cvs = document.createElement('canvas');
+    cvs.width = 128; cvs.height = 64;
+    const ctx = cvs.getContext('2d');
+    ctx.font = 'bold 40px sans-serif';
+    ctx.fillStyle = color;
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+    ctx.lineWidth = 6;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.strokeText(text, 64, 32);
+    ctx.fillText(text, 64, 32);
+    const tex = new THREE.CanvasTexture(cvs);
+    const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(1.2, 0.6, 1);
+    return sprite;
+  }
+
+  function spawnHitEffect(position){
+    // 弾け飛ぶパーティクル
+    for (let i = 0; i < 6; i++){
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1 });
+      const p = new THREE.Mesh(particleGeo, mat);
+      p.position.copy(position);
+      p.position.y += 0.3;
+      scene.add(p);
+      const ang = Math.random() * Math.PI * 2;
+      const spd = 1.5 + Math.random() * 1.5;
+      effects.push({
+        type: 'particle',
+        mesh: p,
+        velocity: new THREE.Vector3(Math.cos(ang) * spd, 2.2 + Math.random() * 1.2, Math.sin(ang) * spd),
+        life: 0.4,
+        maxLife: 0.4
+      });
+    }
+    // +10 スコアポップアップ
+    const sprite = createTextSprite('+10', '#ffe066');
+    sprite.position.copy(position);
+    sprite.position.y += 0.7;
+    scene.add(sprite);
+    effects.push({
+      type: 'popup',
+      mesh: sprite,
+      velocity: new THREE.Vector3(0, 1.1, 0),
+      life: 0.8,
+      maxLife: 0.8
+    });
+  }
+
+  // 攻撃範囲リング(プレイヤーの足元、攻撃時のみ表示)
+  const ATTACK_RANGE = 1.5;
+  const attackRing = new THREE.Mesh(
+    new THREE.RingGeometry(ATTACK_RANGE - 0.12, ATTACK_RANGE, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffcc55, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+  );
+  attackRing.rotation.x = -Math.PI / 2;
+  attackRing.position.y = 0.05;
+  attackRing.visible = false;
+  player.add(attackRing);
+
+  // ---------- ゲーム状態 ----------
+  const state = {
+    health: 100,
+    maxHealth: 100,
+    score: 0,
+    wave: 1,
+    running: false,
+    buffTimer: 0,
+    attackCooldown: 0,
+    hitFlashTimer: 0,
+    waveTimer: 0,
+    karaageTimer: 0,
+    shakeTimer: 0,
+    attackRingTimer: 0,
+    buffVisualActive: false,
+    facing: new THREE.Vector3(0, 0, 1)
+  };
+
+  const ATTACK_COOLDOWN = 0.45;
+  const BUFF_DURATION = 6.0;
+  const PLAYER_SPEED_BASE = 3.4;
+  const PLAYER_SPEED_BUFF = 5.0;
+  const MOUSE_DAMAGE = 8;
+
+  function updateHealthBar(){
+    const pct = Math.max(0, state.health / state.maxHealth * 100);
+    document.getElementById('healthBarInner').style.width = pct + '%';
+  }
+  function updateScore(){
+    document.getElementById('scoreBox').textContent = 'SCORE: ' + state.score;
+  }
+  function updateWave(){
+    document.getElementById('waveBox').textContent = 'WAVE ' + state.wave;
+  }
+
+  function resetGame(){
+    state.health = 100;
+    state.score = 0;
+    state.wave = 1;
+    state.buffTimer = 0;
+    state.attackCooldown = 0;
+    state.waveTimer = 0;
+    state.karaageTimer = 0;
+    state.shakeTimer = 0;
+    state.attackRingTimer = 0;
+    state.buffVisualActive = false;
+    attackRing.visible = false;
+    bodyGroup.scale.setScalar(1);
+    bodyMat.color.setHex(BODY_COLOR_NORMAL);
+    aura.visible = false;
+    player.position.set(0, 0, 0);
+
+    for (const m of mice) scene.remove(m.mesh);
+    mice.length = 0;
+    for (const k of karaages) scene.remove(k.mesh);
+    karaages.length = 0;
+    for (const e of effects) scene.remove(e.mesh);
+    effects.length = 0;
+
+    for (let i = 0; i < 3; i++) spawnMouse();
+    for (let i = 0; i < 3; i++) spawnKaraage();
+
+    updateHealthBar(); updateScore(); updateWave();
+    document.getElementById('buffBox').style.display = 'none';
+  }
+
+  function gameOver(){
+    state.running = false;
+    sfxGameOver();
+    document.getElementById('overlayTitle').textContent = 'ゲームオーバー';
+    document.getElementById('overlayText').innerHTML = 'スコア: ' + state.score + '<br>もう一度挑戦しよう！';
+    document.getElementById('overlayBtn').textContent = 'もう一度';
+    document.getElementById('overlay').style.display = 'flex';
+  }
+
+  document.getElementById('overlayBtn').addEventListener('click', () => {
+    ensureAudio();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    document.getElementById('overlay').style.display = 'none';
+    resetGame();
+    state.running = true;
+  });
+
+  // ---------- メインループ ----------
+  let lastTime = performance.now();
+  const MAX_DT = 1 / 30;
+
+  function tick(now){
+    requestAnimationFrame(tick);
+    let dt = (now - lastTime) / 1000;
+    lastTime = now;
+    if (dt > MAX_DT) dt = MAX_DT;
+
+    if (state.running) update(dt);
+    render();
+  }
+
+  function update(dt){
+    // --- 移動 ---
+    let mx = moveVec.x, my = moveVec.y;
+    if (keys['ArrowLeft'] || keys['a']) mx = -1;
+    if (keys['ArrowRight'] || keys['d']) mx = 1;
+    if (keys['ArrowUp'] || keys['w']) my = -1;
+    if (keys['ArrowDown'] || keys['s']) my = 1;
+
+    const len = Math.hypot(mx, my);
+    const speed = state.buffTimer > 0 ? PLAYER_SPEED_BUFF : PLAYER_SPEED_BASE;
+    if (len > 0.05){
+      const nx = mx / len, ny = my / len;
+      const moveX = nx * speed * dt;
+      const moveZ = ny * speed * dt;
+      let px = player.position.x + moveX;
+      let pz = player.position.z + moveZ;
+      const dist = Math.hypot(px, pz);
+      if (dist > ARENA_R - 0.5){
+        const scale = (ARENA_R - 0.5) / dist;
+        px *= scale; pz *= scale;
+      }
+      player.position.x = px;
+      player.position.z = pz;
+      state.facing.set(nx, 0, ny).normalize();
+      player.rotation.y = Math.atan2(state.facing.x, state.facing.z);
+    }
+
+    // --- 攻撃 ---
+    if (state.attackCooldown > 0) state.attackCooldown -= dt;
+    if (attackRequested && state.attackCooldown <= 0){
+      attackRequested = false;
+      state.attackCooldown = ATTACK_COOLDOWN;
+      sfxPunch();
+      // 軽いパンチ演出
+      armR.rotation.x = -1.4;
+      setTimeout(() => { armR.rotation.x = 0; }, 120);
+
+      // 攻撃範囲リングを表示
+      state.attackRingTimer = 0.25;
+      attackRing.visible = true;
+      attackRing.scale.setScalar(0.3);
+      attackRing.material.opacity = 0.6;
+
+      const range = ATTACK_RANGE;
+      for (const m of mice){
+        if (!m.alive) continue;
+        const d = player.position.distanceTo(m.mesh.position);
+        if (d < range){
+          m.alive = false;
+          state.score += 10;
+          updateScore();
+          spawnHitEffect(m.mesh.position);
+          scene.remove(m.mesh);
+          sfxDefeat();
+          state.shakeTimer = 0.12;
+        }
+      }
+    } else {
+      attackRequested = false;
+    }
+
+    // 攻撃リングのアニメーション
+    if (state.attackRingTimer > 0){
+      state.attackRingTimer -= dt;
+      const t = 1 - Math.max(state.attackRingTimer, 0) / 0.25;
+      attackRing.scale.setScalar(0.3 + t * 0.9);
+      attackRing.material.opacity = 0.6 * (1 - t);
+      if (state.attackRingTimer <= 0) attackRing.visible = false;
+    }
+
+    // --- 鼠の更新 ---
+    for (const m of mice){
+      if (!m.alive) continue;
+      const dir = new THREE.Vector3().subVectors(player.position, m.mesh.position);
+      const dist = dir.length();
+      dir.normalize();
+      m.mesh.position.addScaledVector(dir, m.speed * dt);
+      m.mesh.rotation.y = Math.atan2(dir.x, dir.z);
+      m.mesh.position.y = 0;
+
+      if (dist < 0.75){
+        m.alive = false;
+        scene.remove(m.mesh);
+        state.health -= MOUSE_DAMAGE;
+        updateHealthBar();
+        sfxDamage();
+        flashDamage();
+        if (state.health <= 0){
+          state.health = 0;
+          updateHealthBar();
+          gameOver();
+          return;
+        }
+      }
+    }
+    // 死んだ鼠を除去 & 補充
+    for (let i = mice.length - 1; i >= 0; i--){
+      if (!mice[i].alive) mice.splice(i, 1);
+    }
+    state.waveTimer += dt;
+    const mouseTargetCount = Math.min(3 + state.wave, 9);
+    if (mice.length < mouseTargetCount && Math.random() < dt * 0.6){
+      spawnMouse();
+    }
+    if (state.waveTimer > 18){
+      state.waveTimer = 0;
+      state.wave += 1;
+      updateWave();
+    }
+
+    // --- 唐揚げ更新 ---
+    for (const k of karaages){
+      if (!k.alive) continue;
+      k.spin += dt * 2;
+      k.mesh.rotation.y = k.spin;
+      k.mesh.position.y = 0.28 + Math.sin(k.spin * 1.5) * 0.05;
+      const d = player.position.distanceTo(k.mesh.position);
+      if (d < 0.7){
+        k.alive = false;
+        scene.remove(k.mesh);
+        state.buffTimer = BUFF_DURATION;
+        state.health = Math.min(state.maxHealth, state.health + 15);
+        updateHealthBar();
+        sfxEat();
+        document.getElementById('buffBox').style.display = 'block';
+        karaageHand.visible = true;
+        setTimeout(() => { karaageHand.visible = false; }, 500);
+      }
+    }
+    for (let i = karaages.length - 1; i >= 0; i--){
+      if (!karaages[i].alive) karaages.splice(i, 1);
+    }
+    state.karaageTimer += dt;
+    if (karaages.length < 3 && state.karaageTimer > 3){
+      state.karaageTimer = 0;
+      spawnKaraage();
+    }
+
+    if (state.buffTimer > 0){
+      state.buffTimer -= dt;
+      if (state.buffTimer <= 0){
+        document.getElementById('buffBox').style.display = 'none';
+      }
+    }
+
+    // --- パワーアップ中の見た目切り替え ---
+    if (state.buffTimer > 0 && !state.buffVisualActive){
+      state.buffVisualActive = true;
+      bodyGroup.scale.setScalar(1.3);
+      bodyMat.color.setHex(BODY_COLOR_BUFF);
+      aura.visible = true;
+    } else if (state.buffTimer <= 0 && state.buffVisualActive){
+      state.buffVisualActive = false;
+      bodyGroup.scale.setScalar(1);
+      bodyMat.color.setHex(BODY_COLOR_NORMAL);
+      aura.visible = false;
+    }
+    if (aura.visible){
+      const pulse = 1 + Math.sin(performance.now() * 0.008) * 0.08;
+      aura.scale.setScalar(pulse);
+    }
+
+    if (state.hitFlashTimer > 0) state.hitFlashTimer -= dt;
+    if (state.shakeTimer > 0) state.shakeTimer -= dt;
+
+    // --- 撃退エフェクトの更新 ---
+    for (let i = effects.length - 1; i >= 0; i--){
+      const e = effects[i];
+      e.life -= dt;
+      if (e.type === 'particle'){
+        e.velocity.y -= 4 * dt;
+        e.mesh.position.addScaledVector(e.velocity, dt);
+        e.mesh.material.opacity = Math.max(e.life / e.maxLife, 0);
+      } else if (e.type === 'popup'){
+        e.mesh.position.addScaledVector(e.velocity, dt);
+        e.mesh.material.opacity = Math.max(e.life / e.maxLife, 0);
+      }
+      if (e.life <= 0){
+        scene.remove(e.mesh);
+        e.mesh.material.dispose();
+        if (e.mesh.material.map) e.mesh.material.map.dispose();
+        effects.splice(i, 1);
+      }
+    }
+  }
+
+  function flashDamage(){
+    state.hitFlashTimer = 0.15;
+  }
+
+  function render(){
+    // カメラ追従
+    const targetPos = new THREE.Vector3(
+      player.position.x + camOffset.x,
+      camOffset.y,
+      player.position.z + camOffset.z
+    );
+    camera.position.lerp(targetPos, 0.12);
+
+    if (state.shakeTimer > 0){
+      const s = state.shakeTimer * 1.2;
+      camera.position.x += (Math.random() - 0.5) * s;
+      camera.position.y += (Math.random() - 0.5) * s * 0.6;
+    }
+
+    camera.lookAt(player.position.x, 1.0, player.position.z);
+
+    if (state.hitFlashTimer > 0){
+      scene.background = new THREE.Color(0x552222);
+    } else {
+      scene.background = new THREE.Color(0x2b2b45);
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  // 初期状態を軽く表示(タイトル画面の背景として)
+  resetGame();
+  camera.position.set(camOffset.x, camOffset.y, camOffset.z);
+  camera.lookAt(0, 1, 0);
+  document.getElementById('overlay').style.display = 'flex';
+  requestAnimationFrame(tick);
+
+})();
+</script>
+</body>
+</html>
