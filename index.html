@@ -19,6 +19,12 @@
   #scoreBox { font-size: 20px; font-weight: bold; text-align: right; }
   #waveBox { font-size: 13px; text-align: right; margin-top: 2px; opacity: 0.85; }
   #buffBox { position: fixed; top: 70px; left: 16px; z-index: 10; background: rgba(255,180,0,0.85); border-radius: 10px; padding: 6px 12px; color: #3a2200; font-weight: bold; font-size: 13px; display: none; }
+  #noPowerHint {
+    position: fixed; top: 100px; left: 50%; transform: translateX(-50%); z-index: 15;
+    background: rgba(20,20,30,0.85); border: 1px solid rgba(255,255,255,0.3); border-radius: 10px;
+    padding: 8px 16px; color: #ffd8a8; font-weight: bold; font-size: 14px; display: none; pointer-events: none;
+    text-align: center; white-space: nowrap;
+  }
 
   #joystickZone { position: fixed; left: 0; bottom: 0; width: 45%; height: 55%; z-index: 5; }
   #joystickBase { position: absolute; width: 110px; height: 110px; border-radius: 50%; background: rgba(255,255,255,0.15); border: 2px solid rgba(255,255,255,0.4); display: none; }
@@ -58,6 +64,7 @@
 </div>
 
 <div id="buffBox">🍗 パワーアップ中！</div>
+<div id="noPowerHint">🍗 唐揚げを食べてパワーアップしよう！</div>
 
 <div id="joystickZone">
   <div id="joystickBase"><div id="joystickStick"></div></div>
@@ -262,6 +269,7 @@
   function sfxPunch(){ beep(180, 0.12, 'square', 0.18); }
   function sfxHit(){ beep(90, 0.15, 'sawtooth', 0.2); }
   function sfxDefeat(){ beep(700, 0.08, 'square', 0.18); setTimeout(()=>beep(950, 0.1, 'square', 0.15), 40); }
+  function sfxNoPower(){ beep(160, 0.08, 'triangle', 0.1); }
   function sfxEat(){ beep(520, 0.1, 'sine', 0.15); setTimeout(()=>beep(700,0.12,'sine',0.15), 80); }
   function sfxDamage(){ beep(140, 0.25, 'sawtooth', 0.22); }
   function sfxGameOver(){ beep(220,0.3,'sawtooth',0.2); setTimeout(()=>beep(160,0.4,'sawtooth',0.2),200); }
@@ -418,6 +426,14 @@
     document.getElementById('waveBox').textContent = 'WAVE ' + state.wave;
   }
 
+  let noPowerHintTimeout = null;
+  function showNoPowerHint(){
+    const el = document.getElementById('noPowerHint');
+    el.style.display = 'block';
+    if (noPowerHintTimeout) clearTimeout(noPowerHintTimeout);
+    noPowerHintTimeout = setTimeout(() => { el.style.display = 'none'; }, 900);
+  }
+
   function resetGame(){
     state.health = 100;
     state.score = 0;
@@ -447,6 +463,7 @@
 
     updateHealthBar(); updateScore(); updateWave();
     document.getElementById('buffBox').style.display = 'none';
+    document.getElementById('noPowerHint').style.display = 'none';
   }
 
   function gameOver(){
@@ -507,34 +524,41 @@
       player.rotation.y = Math.atan2(state.facing.x, state.facing.z);
     }
 
-    // --- 攻撃 ---
+    // --- 攻撃(パワーアップ中のみ) ---
     if (state.attackCooldown > 0) state.attackCooldown -= dt;
     if (attackRequested && state.attackCooldown <= 0){
       attackRequested = false;
-      state.attackCooldown = ATTACK_COOLDOWN;
-      sfxPunch();
-      // 軽いパンチ演出
-      armR.rotation.x = -1.4;
-      setTimeout(() => { armR.rotation.x = 0; }, 120);
 
-      // 攻撃範囲リングを表示
-      state.attackRingTimer = 0.25;
-      attackRing.visible = true;
-      attackRing.scale.setScalar(0.3);
-      attackRing.material.opacity = 0.6;
+      if (state.buffTimer <= 0){
+        // パワーアップしていない時は攻撃できない
+        sfxNoPower();
+        showNoPowerHint();
+      } else {
+        state.attackCooldown = ATTACK_COOLDOWN;
+        sfxPunch();
+        // 軽いパンチ演出
+        armR.rotation.x = -1.4;
+        setTimeout(() => { armR.rotation.x = 0; }, 120);
 
-      const range = ATTACK_RANGE;
-      for (const m of mice){
-        if (!m.alive) continue;
-        const d = player.position.distanceTo(m.mesh.position);
-        if (d < range){
-          m.alive = false;
-          state.score += 10;
-          updateScore();
-          spawnHitEffect(m.mesh.position);
-          scene.remove(m.mesh);
-          sfxDefeat();
-          state.shakeTimer = 0.12;
+        // 攻撃範囲リングを表示
+        state.attackRingTimer = 0.25;
+        attackRing.visible = true;
+        attackRing.scale.setScalar(0.3);
+        attackRing.material.opacity = 0.6;
+
+        const range = ATTACK_RANGE;
+        for (const m of mice){
+          if (!m.alive) continue;
+          const d = player.position.distanceTo(m.mesh.position);
+          if (d < range){
+            m.alive = false;
+            state.score += 10;
+            updateScore();
+            spawnHitEffect(m.mesh.position);
+            scene.remove(m.mesh);
+            sfxDefeat();
+            state.shakeTimer = 0.12;
+          }
         }
       }
     } else {
